@@ -21,6 +21,7 @@ import java.sql.SQLTransientException;
 import java.util.concurrent.Semaphore;
 
 /**
+ * 基于Semaphore的锁，可以控制最大并发，或者暂停连接池
  * This class implements a lock that can be used to suspend and resume the pool.  It
  * also provides a faux implementation that is used when the feature is disabled that
  * hopefully gets fully "optimized away" by the JIT.

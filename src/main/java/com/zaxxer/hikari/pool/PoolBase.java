@@ -144,6 +144,11 @@ abstract class PoolBase
       }
    }
 
+   /**
+    * 测试连接是否已失效
+    * @param connection
+    * @return
+    */
    boolean isConnectionDead(final Connection connection)
    {
       try {
@@ -152,10 +157,12 @@ abstract class PoolBase
 
             final var validationSeconds = (int) Math.max(1000L, validationTimeout) / 1000;
 
+            // 如果jdbc4.0及以上, 并且没有配置connectionTestQuery，使用ping命令检查。建议不要配置connectionTestQuery，因为ping命令比connectionTestQuery效率要高
             if (isUseJdbc4Validation) {
                return !connection.isValid(validationSeconds);
             }
 
+            // 否则使用connectionTestQuery检查
             try (var statement = connection.createStatement()) {
                if (isNetworkTimeoutSupported != TRUE) {
                   setQueryTimeout(statement, validationSeconds);
@@ -317,6 +324,7 @@ abstract class PoolBase
       final var dataSourceJNDI = config.getDataSourceJNDI();
       final var dataSourceProperties = config.getDataSourceProperties();
 
+      // 如果用户指定了特殊的DS，则使用自定义的，否则使用默认的DriverDataSource
       var ds = config.getDataSource();
       if (dsClassName != null && ds == null) {
          ds = createInstance(dsClassName, DataSource.class);
@@ -356,6 +364,7 @@ abstract class PoolBase
          var username = config.getUsername();
          var password = config.getPassword();
 
+         // 通过dataSource获取底层的连接
          connection = (username == null) ? dataSource.getConnection() : dataSource.getConnection(username, password);
          if (connection == null) {
             throw new SQLTransientConnectionException("DataSource returned null unexpectedly");
@@ -422,6 +431,7 @@ abstract class PoolBase
             connection.setSchema(schema);
          }
 
+         // 执行用户特殊的初始化函数
          executeSql(connection, config.getConnectionInitSql(), true);
 
          setNetworkTimeout(connection, networkTimeout);

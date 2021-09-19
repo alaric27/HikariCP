@@ -31,6 +31,7 @@ import java.util.function.Predicate;
 import java.util.function.UnaryOperator;
 
 /**
+ * 主要是除去了一些边界检查和不实现一些不用到的方法
  * Fast list without range checking.
  *
  * @author Brett Wooldridge

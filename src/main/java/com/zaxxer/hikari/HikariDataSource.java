@@ -43,6 +43,9 @@ public class HikariDataSource extends HikariConfig implements DataSource, Closea
 
    private final AtomicBoolean isShutdown = new AtomicBoolean();
 
+   /**
+    * fastPathPool是为了提升性能，因为pool是volatile的，每次访问的时候会略微损失一些性能
+    */
    private final HikariPool fastPathPool;
    private volatile HikariPool pool;
 
@@ -75,6 +78,7 @@ public class HikariDataSource extends HikariConfig implements DataSource, Closea
    public HikariDataSource(HikariConfig configuration)
    {
       configuration.validate();
+      // 因为HikariDataSource 也集成了HikariConfig，所以也是可以设置配置的，这里把HikariConfig的属性赋值到 HikariDataSource中
       configuration.copyStateTo(this);
 
       LOGGER.info("{} - Starting...", configuration.getPoolName());
@@ -102,6 +106,7 @@ public class HikariDataSource extends HikariConfig implements DataSource, Closea
 
       // See http://en.wikipedia.org/wiki/Double-checked_locking#Usage_in_Java
       HikariPool result = pool;
+      // 双检查锁
       if (result == null) {
          synchronized (this) {
             result = pool;

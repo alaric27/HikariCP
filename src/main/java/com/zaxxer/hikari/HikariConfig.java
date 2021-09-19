@@ -88,6 +88,9 @@ public class HikariConfig implements HikariConfigMXBean
    private boolean isReadOnly;
    private boolean isIsolateInternalQueries;
    private boolean isRegisterMbeans;
+   /**
+    * 连接池是否可暂停
+    */
    private boolean isAllowPoolSuspension;
    private DataSource dataSource;
    private Properties dataSourceProperties;
@@ -100,6 +103,10 @@ public class HikariConfig implements HikariConfigMXBean
 
    private long keepaliveTime;
 
+   /**
+    * 是否可以在运行时不通过HikariConfigMXBean进行参数的修改
+    * 如果是true，那么一定要通过HikariConfigMXBean进行参数修改
+    */
    private volatile boolean sealed;
 
    /**

@@ -65,6 +65,9 @@ public class ConcurrentBag<T extends IConcurrentBagEntry> implements AutoCloseab
 
    private final ThreadLocal<List<Object>> threadList;
    private final IBagStateListener listener;
+   /**
+    * 正在等待获取连接的个数
+    */
    private final AtomicInteger waiters;
    private volatile boolean closed;
 
@@ -120,6 +123,7 @@ public class ConcurrentBag<T extends IConcurrentBagEntry> implements AutoCloseab
    public T borrow(long timeout, final TimeUnit timeUnit) throws InterruptedException
    {
       // Try the thread-local list first
+      // 首先从ThreadLocal获取
       final var list = threadList.get();
       for (int i = list.size() - 1; i >= 0; i--) {
          final var entry = list.remove(i);
@@ -131,12 +135,16 @@ public class ConcurrentBag<T extends IConcurrentBagEntry> implements AutoCloseab
       }
 
       // Otherwise, scan the shared list ... then poll the handoff queue
+      // 从共享连接池中获取
       final int waiting = waiters.incrementAndGet();
       try {
          for (T bagEntry : sharedList) {
             if (bagEntry.compareAndSet(STATE_NOT_IN_USE, STATE_IN_USE)) {
                // If we may have stolen another waiter's connection, request another bag add.
+               //如果waiters大于 1, 说明除了当前线程之外, 还有其他线程在等待空闲连接
+               //这里, 当前线程的addItemFuture是 null, 说明自己没有请求创建新连接, 但是拿到了连接, 这就说明是拿到了其他线程请求创建的连接, 这就是所谓的偷窃了其他线程的连接, 然后当前线程请求创建一个新连接, 补偿给其他线程
                if (waiting > 1) {
+                  //提交一个异步添加新连接的任务
                   listener.addBagItem(waiting - 1);
                }
                return bagEntry;
@@ -145,6 +153,7 @@ public class ConcurrentBag<T extends IConcurrentBagEntry> implements AutoCloseab
 
          listener.addBagItem(waiting);
 
+         // 等待新连接的创建
          timeout = timeUnit.toNanos(timeout);
          do {
             final var start = currentTime();
@@ -164,6 +173,7 @@ public class ConcurrentBag<T extends IConcurrentBagEntry> implements AutoCloseab
    }
 
    /**
+    * 归还借用的连接
     * This method will return a borrowed object to the bag.  Objects
     * that are borrowed from the bag but never "requited" will result
     * in a memory leak.
@@ -174,8 +184,10 @@ public class ConcurrentBag<T extends IConcurrentBagEntry> implements AutoCloseab
     */
    public void requite(final T bagEntry)
    {
+      // 设置连接状态为可用状态
       bagEntry.setState(STATE_NOT_IN_USE);
 
+      // 如果有在等待获取连接的用户，则直接转交
       for (var i = 0; waiters.get() > 0; i++) {
          if (bagEntry.getState() != STATE_NOT_IN_USE || handoffQueue.offer(bagEntry)) {
             return;
@@ -188,6 +200,7 @@ public class ConcurrentBag<T extends IConcurrentBagEntry> implements AutoCloseab
          }
       }
 
+      //  添加到本地线程里面
       final var threadLocalList = threadList.get();
       if (threadLocalList.size() < 50) {
          threadLocalList.add(weakThreadLocals ? new WeakReference<>(bagEntry) : bagEntry);
@@ -293,6 +306,7 @@ public class ConcurrentBag<T extends IConcurrentBagEntry> implements AutoCloseab
     */
    public boolean reserve(final T bagEntry)
    {
+      // 使当前的连接不可借出
       return bagEntry.compareAndSet(STATE_NOT_IN_USE, STATE_RESERVED);
    }
 
@@ -305,6 +319,7 @@ public class ConcurrentBag<T extends IConcurrentBagEntry> implements AutoCloseab
    @SuppressWarnings("SpellCheckingInspection")
    public void unreserve(final T bagEntry)
    {
+      // 使连接可借用
       if (bagEntry.compareAndSet(STATE_RESERVED, STATE_NOT_IN_USE)) {
          // spin until a thread takes it or none are waiting
          while (waiters.get() > 0 && !handoffQueue.offer(bagEntry)) {

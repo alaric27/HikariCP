@@ -27,6 +27,9 @@ import java.util.concurrent.ScheduledExecutorService;
 class ProxyLeakTaskFactory
 {
    private ScheduledExecutorService executorService;
+   /**
+    * 检测泄露的延迟时间。获取连接后，leakDetectionThreshold内没有归还连接，将会触发连接泄露检查
+    */
    private long leakDetectionThreshold;
 
    ProxyLeakTaskFactory(final long leakDetectionThreshold, final ScheduledExecutorService executorService)
@@ -37,6 +40,7 @@ class ProxyLeakTaskFactory
 
    ProxyLeakTask schedule(final PoolEntry poolEntry)
    {
+      // 如果leakDetectionThreshold为0，代表禁用连接泄露检测
       return (leakDetectionThreshold == 0) ? ProxyLeakTask.NO_LEAK : scheduleNewTask(poolEntry);
    }
 

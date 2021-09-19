@@ -32,6 +32,9 @@ import org.slf4j.LoggerFactory;
 class ProxyLeakTask implements Runnable
 {
    private static final Logger LOGGER = LoggerFactory.getLogger(ProxyLeakTask.class);
+   /**
+    * 不需要检测的任务
+    */
    static final ProxyLeakTask NO_LEAK;
 
    private ScheduledFuture<?> scheduledFuture;
@@ -67,6 +70,7 @@ class ProxyLeakTask implements Runnable
 
    void schedule(ScheduledExecutorService executorService, long leakDetectionThreshold)
    {
+      // 提交延时任务
       scheduledFuture = executorService.schedule(this, leakDetectionThreshold, TimeUnit.MILLISECONDS);
    }
 
@@ -81,9 +85,13 @@ class ProxyLeakTask implements Runnable
       System.arraycopy(stackTrace, 5, trace, 0, trace.length);
 
       exception.setStackTrace(trace);
+      // 打印泄露异常
       LOGGER.warn("Connection leak detection triggered for {} on thread {}, stack trace follows", connectionName, threadName, exception);
    }
 
+   /**
+    * 归还连接或者关闭连接时，取消检测任务
+    */
    void cancel()
    {
       scheduledFuture.cancel(false);

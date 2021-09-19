@@ -40,11 +40,20 @@ final class PoolEntry implements IConcurrentBagEntry
    private static final AtomicIntegerFieldUpdater<PoolEntry> stateUpdater;
 
    Connection connection;
+   /**
+    * 最后访问时间
+    */
    long lastAccessed;
+   /**
+    * 最后借出时间
+    */
    long lastBorrowed;
 
    @SuppressWarnings("FieldCanBeLocal")
    private volatile int state = 0;
+   /**
+    * 连接是否驱逐, ture:驱逐
+    */
    private volatile boolean evict;
 
    private volatile ScheduledFuture<?> endOfLife;
