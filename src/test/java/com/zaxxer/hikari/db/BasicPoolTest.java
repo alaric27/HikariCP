@@ -54,9 +54,9 @@ public class BasicPoolTest
        try (HikariDataSource ds = new HikariDataSource(config);
             Connection conn = ds.getConnection();
             Statement stmt = conn.createStatement()) {
-          stmt.executeUpdate("DROP TABLE IF EXISTS basic_pool_test");
-          stmt.executeUpdate("CREATE TABLE basic_pool_test ("
-                            + "id INTEGER NOT NULL IDENTITY PRIMARY KEY, "
+          stmt.execute("DROP TABLE IF EXISTS basic_pool_test");
+          stmt.execute("CREATE TABLE basic_pool_test ("
+                            + "id INTEGER NOT NULL PRIMARY KEY, "
                             + "timestamp TIMESTAMP, "
                             + "string VARCHAR(128), "
                             + "string_from_number NUMERIC "
@@ -120,7 +120,7 @@ public class BasicPoolTest
       try (HikariDataSource ds = new HikariDataSource(config)) {
          System.clearProperty("com.zaxxer.hikari.housekeeping.periodMs");
 
-         SECONDS.sleep(1);
+         SECONDS.sleep(3);
 
          HikariPool pool = getPool(ds);
 

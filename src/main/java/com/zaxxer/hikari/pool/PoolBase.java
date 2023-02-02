@@ -132,10 +132,11 @@ abstract class PoolBase
             logger.debug("{} - Closing connection {}: {}", poolName, connection, closureReason);
 
             // continue with the close even if setNetworkTimeout() throws
-            try (connection) {
-               setNetworkTimeout(connection, SECONDS.toMillis(15));
-            } catch (SQLException e) {
-               // ignore
+            try (connection; connection) {
+               if (!connection.isClosed())
+                  setNetworkTimeout(connection, SECONDS.toMillis(15));
+               } catch (SQLException e) {
+                  // ignore
             }
          }
          catch (Exception e) {
@@ -152,9 +153,8 @@ abstract class PoolBase
    boolean isConnectionDead(final Connection connection)
    {
       try {
+         setNetworkTimeout(connection, validationTimeout);
          try {
-            setNetworkTimeout(connection, validationTimeout);
-
             final var validationSeconds = (int) Math.max(1000L, validationTimeout) / 1000;
 
             // 如果jdbc4.0及以上, 并且没有配置connectionTestQuery，使用ping命令检查。建议不要配置connectionTestQuery，因为ping命令比connectionTestQuery效率要高
@@ -609,7 +609,7 @@ abstract class PoolBase
       }
       else {
          ThreadFactory threadFactory = config.getThreadFactory();
-         threadFactory = threadFactory != null ? threadFactory : new DefaultThreadFactory(poolName + " network timeout executor", true);
+         threadFactory = threadFactory != null ? threadFactory : new DefaultThreadFactory(poolName + " network timeout executor");
          ThreadPoolExecutor executor = (ThreadPoolExecutor) Executors.newCachedThreadPool(threadFactory);
          executor.setKeepAliveTime(15, SECONDS);
          executor.allowCoreThreadTimeOut(true);
@@ -673,7 +673,7 @@ abstract class PoolBase
 
    /**
     * Special executor used only to work around a MySQL issue that has not been addressed.
-    * MySQL issue: http://bugs.mysql.com/bug.php?id=75615
+    * MySQL issue: <a href="http://bugs.mysql.com/bug.php?id=75615">...</a>
     */
    private static class SynchronousExecutor implements Executor
    {

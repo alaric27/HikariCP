@@ -111,6 +111,12 @@ public class HikariConfig implements HikariConfigMXBean
 
    /**
     * Default constructor
+    * <p>
+    * If the System property {@code hikari.configurationFile} is set,
+    * then the default constructor will attempt to load the specified configuration file
+    * <p>
+    * {@link #HikariConfig(String propertyFileName)} can be similarly used
+    * instead of using the system property
     */
    public HikariConfig()
    {
@@ -800,8 +806,8 @@ public class HikariConfig implements HikariConfigMXBean
    }
 
    /**
-    * Set the name of the connection pool.  This is primarily used for the MBean
-    * to uniquely identify the pool configuration.
+    * Set the name of the connection pool.  This is primarily used in logging and JMX management consoles
+    * to identify pools and pool configurations
     *
     * @param poolName the name of the connection pool to use
     */
@@ -1125,7 +1131,7 @@ public class HikariConfig implements HikariConfigMXBean
                value = "internal";
             }
             else if (prop.contains("jdbcUrl") && value instanceof String) {
-               value = ((String)value).replaceAll("([?&;]password=)[^&#;]*(.*)", "$1<masked>$2");
+               value = ((String)value).replaceAll("([?&;][^&#;=]*[pP]assword=)[^&#;]*", "$1<masked>");
             }
             else if (prop.contains("password")) {
                value = "<masked>";

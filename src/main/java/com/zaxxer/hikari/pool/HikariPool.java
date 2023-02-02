@@ -37,7 +37,6 @@ import java.sql.SQLException;
 import java.sql.SQLTransientConnectionException;
 import java.util.Optional;
 import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 
 import static com.zaxxer.hikari.util.ClockSource.*;
@@ -71,10 +70,6 @@ public final class HikariPool extends PoolBase implements HikariPoolMXBean, IBag
 
    private final PoolEntryCreator poolEntryCreator = new PoolEntryCreator();
    private final PoolEntryCreator postFillPoolEntryCreator = new PoolEntryCreator("After adding ");
-   /**
-    * 正在创建的连接的任务数
-    */
-   private final AtomicInteger addConnectionQueueDepth = new AtomicInteger();
    private final ThreadPoolExecutor addConnectionExecutor;
    private final ThreadPoolExecutor closeConnectionExecutor;
 
@@ -118,7 +113,7 @@ public final class HikariPool extends PoolBase implements HikariPoolMXBean, IBag
       ThreadFactory threadFactory = config.getThreadFactory();
 
       final int maxPoolSize = config.getMaximumPoolSize();
-      LinkedBlockingQueue<Runnable> addConnectionQueue = new LinkedBlockingQueue<>(16);
+      LinkedBlockingQueue<Runnable> addConnectionQueue = new LinkedBlockingQueue<>(maxPoolSize);
       // 添加连接的线程池
       this.addConnectionExecutor = createThreadPoolExecutor(addConnectionQueue, poolName + " connection adder", threadFactory, new CustomDiscardPolicy());
       // 关闭连接的线程池
@@ -342,15 +337,8 @@ public final class HikariPool extends PoolBase implements HikariPoolMXBean, IBag
    @Override
    public void addBagItem(final int waiting)
    {
-      final int queueDepth = addConnectionQueueDepth.get();
-      final int countToAdd = waiting - queueDepth;
-      if (countToAdd >= 0) {
-         addConnectionQueueDepth.incrementAndGet();
+      if (waiting > addConnectionExecutor.getQueue().size())
          addConnectionExecutor.submit(poolEntryCreator);
-      }
-      else {
-         logger.debug("{} - Add connection elided, waiting={}, adders pending/running={}", poolName, waiting, queueDepth);
-      }
    }
 
    // ***********************************************************************
@@ -528,20 +516,17 @@ public final class HikariPool extends PoolBase implements HikariPoolMXBean, IBag
     */
    private synchronized void fillPool(final boolean isAfterAdd)
    {
-      final var queueDepth = addConnectionQueueDepth.get();
-      // 等待获取 - 正在创建 = 需要创建的
-      final var countToAdd = connectionBag.getWaitingThreadCount() - queueDepth;
-      final var shouldAdd =
-            getTotalConnections() < config.getMaximumPoolSize() &&
-               (getIdleConnections() < config.getMinimumIdle() || countToAdd > getIdleConnections());
+      final var idle = getIdleConnections();
+      final var shouldAdd = getTotalConnections() < config.getMaximumPoolSize() && idle < config.getMinimumIdle();
 
       // 如果需要添加，则提交创建连接的任务
       if (shouldAdd) {
-         addConnectionQueueDepth.incrementAndGet();
-         addConnectionExecutor.submit(isAfterAdd ? postFillPoolEntryCreator : poolEntryCreator);
+         final var countToAdd = config.getMinimumIdle() - idle;
+         for (int i = 0; i < countToAdd; i++)
+            addConnectionExecutor.submit(isAfterAdd ? postFillPoolEntryCreator : poolEntryCreator);
       }
       else if (isAfterAdd) {
-         logger.debug("{} - Fill pool skipped, pool has sufficient level or currently being filled (queueDepth={}).", poolName, queueDepth);
+         logger.debug("{} - Fill pool skipped, pool has sufficient level or currently being filled.", poolName);
       }
    }
 
@@ -654,7 +639,7 @@ public final class HikariPool extends PoolBase implements HikariPoolMXBean, IBag
    private ScheduledExecutorService initializeHouseKeepingExecutorService()
    {
       if (config.getScheduledExecutor() == null) {
-         final var threadFactory = Optional.ofNullable(config.getThreadFactory()).orElseGet(() -> new DefaultThreadFactory(poolName + " housekeeper", true));
+         final var threadFactory = Optional.ofNullable(config.getThreadFactory()).orElseGet(() -> new DefaultThreadFactory(poolName + " housekeeper"));
          final var executor = new ScheduledThreadPoolExecutor(1, threadFactory, new ThreadPoolExecutor.DiscardPolicy());
          executor.setExecuteExistingDelayedTasksAfterShutdownPolicy(false);
          executor.setRemoveOnCancelPolicy(true);
@@ -700,9 +685,9 @@ public final class HikariPool extends PoolBase implements HikariPoolMXBean, IBag
     * timeout occurred when trying to acquire a Connection from the pool.  If there was an underlying cause for the
     * timeout, e.g. a SQLException thrown by the driver while trying to create a new Connection, then use the
     * SQL State from that exception as our own and additionally set that exception as the "next" SQLException inside
-    * of our exception.
+    * our exception.
     *
-    * As a side-effect, log the timeout failure at DEBUG, and record the timeout failure in the metrics tracker.
+    * As a side effect, log the timeout failure at DEBUG, and record the timeout failure in the metrics tracker.
     *
     * @param startTime the start time (timestamp) of the acquisition attempt
     * @return a SQLException to be thrown from {@link #getConnection()}
@@ -717,7 +702,10 @@ public final class HikariPool extends PoolBase implements HikariPoolMXBean, IBag
       if (originalException instanceof SQLException) {
          sqlState = ((SQLException) originalException).getSQLState();
       }
-      final var connectionException = new SQLTransientConnectionException(poolName + " - Connection is not available, request timed out after " + elapsedMillis(startTime) + "ms.", sqlState, originalException);
+      final var connectionException = new SQLTransientConnectionException(
+         poolName + " - Connection is not available, request timed out after " + elapsedMillis(startTime) + "ms " +
+            "(total=" + getTotalConnections() + ", active=" + getActiveConnections() + ", idle=" + getIdleConnections() + ", waiting=" + getThreadsAwaitingConnection() + ")",
+         sqlState, originalException);
       if (originalException instanceof SQLException) {
          connectionException.setNextException((SQLException) originalException);
       }
@@ -759,22 +747,24 @@ public final class HikariPool extends PoolBase implements HikariPoolMXBean, IBag
                final var poolEntry = createPoolEntry();
                if (poolEntry != null) {
                   added = true;
-                  backoffMs = 10L;
                   // 添加到连接池
                   connectionBag.add(poolEntry);
                   logger.debug("{} - Added connection {}", poolName, poolEntry.connection);
+                  quietlySleep(30L);
+                  break;
                } else {  // failed to get connection from db, sleep and retry
-                  backoffMs = Math.min(SECONDS.toMillis(5), backoffMs * 2);
-                  if (loggingPrefix != null)
+                  if (loggingPrefix != null && backoffMs % 50 == 0)
                      logger.debug("{} - Connection add failed, sleeping with backoff: {}ms", poolName, backoffMs);
+                  quietlySleep(backoffMs);
+                  backoffMs = Math.min(SECONDS.toMillis(5), backoffMs * 2);
                }
-
-               quietlySleep(backoffMs);
             }
          }
          finally {
-            addConnectionQueueDepth.decrementAndGet();
-            if (added && loggingPrefix != null) logPoolState(loggingPrefix);
+            if (added && loggingPrefix != null)
+               logPoolState(loggingPrefix);
+            else
+               logPoolState("Connection not added, ");
          }
 
          // Pool is suspended, shutdown, or at max size
@@ -794,7 +784,7 @@ public final class HikariPool extends PoolBase implements HikariPoolMXBean, IBag
    }
 
    /**
-    * The house keeping task to retire and maintain minimum idle connections.
+    * The housekeeping task to retire and maintain minimum idle connections.
     */
    private final class HouseKeeper implements Runnable
    {
@@ -835,24 +825,22 @@ public final class HikariPool extends PoolBase implements HikariPoolMXBean, IBag
 
             previous = now;
 
-            var afterPrefix = "Pool ";
             // 如果空闲时间大于零，并且最大连接池和最小连接池不一致，则把没有使用的连接驱逐，保持到最小连接
             if (idleTimeout > 0L && config.getMinimumIdle() < config.getMaximumPoolSize()) {
                logPoolState("Before cleanup ");
-               afterPrefix = "After cleanup  ";
-
                final var notInUse = connectionBag.values(STATE_NOT_IN_USE);
-               var toRemove = notInUse.size() - config.getMinimumIdle();
+               var maxToRemove = notInUse.size() - config.getMinimumIdle();
                for (PoolEntry entry : notInUse) {
                   // 移除已经过了idleTime的连接
-                  if (toRemove > 0 && elapsedMillis(entry.lastAccessed, now) > idleTimeout && connectionBag.reserve(entry)) {
+                  if (maxToRemove > 0 && elapsedMillis(entry.lastAccessed, now) > idleTimeout && connectionBag.reserve(entry)) {
                      closeConnection(entry, "(connection has passed idleTimeout)");
-                     toRemove--;
+                     maxToRemove--;
                   }
                }
+               logPoolState("After cleanup  ");
             }
-
-            logPoolState(afterPrefix);
+            else
+               logPoolState("Pool ");
             // 填充到最小连接池数
             fillPool(true); // Try to maintain minimum connections
          }
@@ -862,20 +850,6 @@ public final class HikariPool extends PoolBase implements HikariPoolMXBean, IBag
       }
    }
 
-   /**
-    * 添加连接的拒绝策略，直接丢弃
-    */
-   private class CustomDiscardPolicy implements RejectedExecutionHandler
-   {
-      @Override
-      public void rejectedExecution(Runnable r, ThreadPoolExecutor executor) {
-         addConnectionQueueDepth.decrementAndGet();
-      }
-   }
-
-   /**
-    * 最大生命周期的任务
-    */
    private final class MaxLifetimeTask implements Runnable
    {
       private final PoolEntry poolEntry;

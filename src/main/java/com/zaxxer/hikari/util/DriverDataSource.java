@@ -21,8 +21,6 @@ import java.sql.Driver;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.sql.SQLFeatureNotSupportedException;
-import java.util.Enumeration;
-import java.util.Map.Entry;
 import java.util.Properties;
 
 import javax.sql.DataSource;
@@ -103,7 +101,8 @@ public final class DriverDataSource implements DataSource
          }
       }
 
-      final var sanitizedUrl = jdbcUrl.replaceAll("([?&;]password=)[^&#;]*(.*)", "$1<masked>$2");
+      final var sanitizedUrl = jdbcUrl.replaceAll("([?&;][^&#;=]*[pP]assword=)[^&#;]*", "$1<masked>");
+      
       try {
          if (driver == null) {
             driver = DriverManager.getDriver(jdbcUrl);
