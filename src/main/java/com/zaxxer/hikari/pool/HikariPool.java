@@ -599,7 +599,6 @@ public final class HikariPool extends PoolBase implements HikariPoolMXBean, IBag
     */
    private void throwPoolInitializationException(Throwable t)
    {
-      logger.error("{} - Exception during pool initialization.", poolName, t);
       destroyHouseKeepingExecutorService();
       throw new PoolInitializationException(t);
    }
@@ -763,7 +762,7 @@ public final class HikariPool extends PoolBase implements HikariPoolMXBean, IBag
          finally {
             if (added && loggingPrefix != null)
                logPoolState(loggingPrefix);
-            else
+            else if (!added)
                logPoolState("Connection not added, ");
          }
 
