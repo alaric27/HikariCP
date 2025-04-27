@@ -61,12 +61,23 @@ public class HikariConfig implements HikariConfigMXBean
    // Properties changeable at runtime through the HikariConfigMXBean
    //
    private volatile String catalog;
+   // 等待获取连接的超时时间默认30s
    private volatile long connectionTimeout;
+
+   //连接校验的最长时间
    private volatile long validationTimeout;
+
+   // 连接最大空闲时间，超过该时间会被回收
    private volatile long idleTimeout;
    private volatile long leakDetectionThreshold;
+
+   // 连接最大生存时间, 超过该时间会被回收
    private volatile long maxLifetime;
+
+   // 最大连接池大小
    private volatile int maxPoolSize;
+
+   // 最小连接池大小
    private volatile int minIdle;
    private volatile String username;
    private volatile String password;
@@ -83,8 +94,13 @@ public class HikariConfig implements HikariConfigMXBean
    private String jdbcUrl;
    private String poolName;
    private String schema;
+   // 事务默认隔离级别
    private String transactionIsolationName;
+
+   // 是否自动提交，默认true
    private boolean isAutoCommit;
+
+   // 获取的连接是否只读的
    private boolean isReadOnly;
    private boolean isIsolateInternalQueries;
    private boolean isRegisterMbeans;

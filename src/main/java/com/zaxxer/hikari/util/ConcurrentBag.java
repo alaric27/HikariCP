@@ -60,6 +60,7 @@ public class ConcurrentBag<T extends IConcurrentBagEntry> implements AutoCloseab
 {
    private static final Logger LOGGER = LoggerFactory.getLogger(ConcurrentBag.class);
 
+   // 负责存放所有用于出借的资源
    private final CopyOnWriteArrayList<T> sharedList;
    private final boolean weakThreadLocals;
 
